@@ -1,0 +1,226 @@
+---
+title: "Exploring the BRFSS data"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+```
+
+### Load data
+
+```{r load-data}
+load("~/Downloads/brfss2013.RData")
+```
+
+
+
+* * *
+
+## Part 1: Data
+
+The survey seeked population data on non institutionalized U.S. adults (18+). 
+The sampling strategy undertaken for landline based house holds was multistage sampling.
+They would choose a random landline number, and then just ask one adult per household. 
+For the cellphone based observations, they undertook a simple random sample. Nothing 
+is mentioned about stratifying the observations based on gender, ethnicity, region, or
+other factors.    
+
+It is important to note the data is an observation study and not an experiment. This is because they randomly sample
+individuals from the population, and no means of control or blocking confounding factors was made. Therefore
+any correlations or findings could not rule to a casual relations. A proper experiment
+would need to be run to determine a true casual relation. 
+
+* * *
+
+
+## Part 2: Research questions
+
+**Research quesion 1:**
+
+One question that came to me right away was what was the association between income,
+weight, and mental health. My personal experiences has me to believe that all three of these
+would be related. I would like to see if the data also validates the association I believe is there.
+
+**Research quesion 2:**
+
+My next question I am instrested in is how vices such as smoking and drinking can affect sleep. I want to know if smoking and drinking have a negative association with sleep time. 
+
+**Research quesion 3:**
+
+My final question is to investigate the exercise habits between those diagnosed with diabetes and those without. In particulat I want to see if there is an association between the weekly amount of exercise between the two groups. 
+
+* * *
+
+## Part 3: Exploratory data analysis
+
+**Research quesion 1:**
+
+First question was about the association of mental health and income.
+
+```{r}
+mental_df <- tibble(brfss2013) %>% 
+  select(menthlth,income2,weight2) %>% 
+  filter(!is.na(income2),menthlth < 50) %>% 
+  mutate(weight2 = as.numeric(weight2)) 
+  
+ggplot(mental_df,aes(x=income2,y=menthlth)) + 
+  geom_boxplot(fill="lightblue") + 
+  coord_flip() + 
+  ggtitle("Lower Incomes Tend to Struggle More With Mental Health")
+```
+   
+The boxplot above does indeed imply
+that there is a an association between the two. We can also see there are outliers in every category, showing
+that all income brackets struggle with mental health problems. It is also clear the data is not normally distributed. This makes sense since the question is the number of days per month mental health is unwell and is naturally constrained between 0 and 30. The graph below illustrates this.
+
+```{r}
+ggplot(mental_df,aes(x=menthlth))+
+  geom_histogram(binwidth = 3, fill = "lightblue", colour = "black") + 
+  ggtitle("Mental Health Extreme Right Screw")+
+  xlab("Mental Health Unwell Days per Month")
+```
+
+
+```{r}
+mental_df_summary <- mental_df %>% 
+  group_by(income2) %>% 
+  summarise(avg_mental_days = mean(menthlth))  
+mental_df_summary
+```
+
+We can see average mentally unwell increases as income descreases. A graphical of this is below.
+
+```{r}
+mental_df_summary %>% 
+ungroup() %>% 
+  ggplot(aes(x=income2,y=avg_mental_days)) +
+  geom_bar(stat='identity',fill='lightblue',color='black') +
+  coord_flip() +
+  ylab('Average Unwell Health Days Per Month') + 
+  xlab('Annual Income') + 
+  ggtitle('Lower Income and Mental Health are Negatively Associated')
+```
+
+
+Next, I also want to see how weight and mental health associate. First let's take a look at the weight distribution of the people surveyed.
+
+```{r}
+mental_df %>% 
+  ggplot(aes(x=weight2)) + 
+  geom_histogram(bins=50, colour = "black", fill = "lightblue") +
+  xlab("Average Weight (lbs)")
+```
+   
+Looks like there is a strong right skew. There are some individuals that have a very high weight in the survey. What is also odd is that there is quite a few individuals with quite a low weight (e.g. a lot of people are in the 0 bin)
+
+
+```{r}
+mental_df %>% 
+  summarise(avg_weight = mean(weight2),
+            median_weight = median(weight2),
+            min_weight = min(weight2),
+            max_weight = max(weight2))
+```
+Taking a look at the summary statitics of the weight, it appears there could be some issues with the sampling of the data. A weight of 1 is physically impossible. This brings a lot of suspision of how the data was drawn. 
+
+```{r}
+mental_df %>% 
+  filter(weight2 < 2) %>% 
+  summarise(people_weight_one = n())
+```
+We can see there are 11,535 people with a weight of one pound.  Using this self reported weight data will be difficult. Looking at the html attachment describing the dataset isn't too useful. It shows some individuals reported in kg, and some other didn't report at all. However the numerical values reported are not in line with the values described in the documentation (e.g.  someone who reported in kg should start with a 9,000, someone who didn't report a weight should have a value 7777). It will be difficult to see any associations off this without having a way to filter out the missing values.
+
+```{r}
+mental_df %>% 
+  group_by(menthlth) %>% 
+  summarise(avg_weight = mean(weight2)) %>% 
+  ungroup() %>% 
+  ggplot(aes(y=menthlth,x=avg_weight)) + geom_point(size = 4, colour = "blue") +
+  xlab("Average Weight (lbs)")+
+  ylab("Self Reported Unwell Health Days") +
+  ggtitle("Perhaps Higher Weights and Mental Health Are Positively Associated?")
+```
+    
+The graph above show that maybe there is a positive association between average weight in pounds and unwell mental health days per month. However, the weight data has some issues that need to be addressed before taking this generalization too seriously. 
+
+
+
+**Research quesion 2:**
+
+```{r}
+vice <- tibble(brfss2013) %>% 
+  select(sleptim1,smoke100,avedrnk2)
+
+vice %>% 
+  filter(between(sleptim1,1,24)) %>% 
+  group_by(sleptim1,smoke100, .drop = TRUE) %>% 
+  summarise(avg_drinks = mean(avedrnk2,na.rm = TRUE),
+            count = n()) %>% 
+  ungroup() %>% 
+  ggplot(aes(y=avg_drinks,x=sleptim1,colour=smoke100)) +
+  geom_point(size=3,na.rm = TRUE) +
+  xlab("Average Hours Sleep per Night") + 
+  ylab("Average Drinks per Day Past 30 Days") + 
+  labs(colour = "Smoker")+
+  ggtitle("Little to No Association Between Sleep and Average Drinks")
+```
+    
+Looks like there isn't much evidence that average sleep hours and average drinks are associated. One interesting yet unrelated trend this chart shows is that for any given average sleep time, the smokers tend to drink more. Let's take a look at this some more.
+
+```{r}
+vice %>% 
+  group_by(smoke100) %>% 
+  summarise(avg_drinks = mean(avedrnk2,na.rm=TRUE),
+            median_drinks = median(avedrnk2,na.rm = TRUE))
+```
+    
+This summary statistics implies there could be an association with smokers tending to drink more than nonsmokers. Let's take a look at a boxplot to get a better idea of the distribution. 
+
+```{r}
+vice %>% 
+ggplot(aes(x=smoke100,y=avedrnk2)) + geom_boxplot(fill = "lightblue", na.rm = TRUE) + ggtitle("Average Drinks by Smokers vs Non Smokers") +
+  xlab("Smoker") + 
+  ylab("Average Drinks Per Day Past 30 Days")
+```
+There is a strong right skew in both Smokers and Non Smoker. It appears there may be some more outliers in the Smoker group which is pulling the average up in that particular group.
+
+
+**Research quesion 3:**
+
+The last question I wanted to investigate was if people diagonosed with diabetes had different exercise habits than those not diagnosed.
+
+```{r}
+
+diabetes <- tibble(brfss2013) %>% 
+  select(exerhmm1, diabete3)
+
+diabetes %>% 
+  group_by(diabete3) %>% 
+  summarise(avg_exercise = mean(exerhmm1, na.rm = TRUE),
+            median_exercise = median(exerhmm1, na.rm = TRUE)) 
+```
+
+The table above would indicate that there could be an association between the two, and that those with diabetes may not exercise as often as those without diabetes. 
+
+```{r}
+diabetes %>% 
+  filter( diabete3 %in% c("Yes","No") ) %>% 
+  ggplot(aes(x=diabete3,y=exerhmm1)) + 
+  geom_boxplot(fill = "lightblue", na.rm = TRUE) +
+  coord_flip() + 
+  ylab("Minutes Spent Walking, Jogging, or Swimming Per Week") + 
+  xlab("Diabetic") +
+  ggtitle("Aerobic Activity Difference between Diabetics and Non Diabetics")
+```
+
+The boxplot shows that there is a good amount of overlap between the diabetic and non diabetic weekly exercise amount. However we can see that there is a small amount of more exercise in the non-diabetic group as seen by the higher median, IQR, and the larger amount of outliers on the high end. 
